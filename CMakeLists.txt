@@ -11,7 +11,8 @@ find_package(Vulkan REQUIRED)
 add_subdirectory(external/glfw)
 
 
-add_executable(learnVulkan src/main.cpp external/volk/volk.c)
+
+add_executable(learnVulkan src/main.cpp external/volk/volk.c src/app.cpp "include/vulkanBoilerplateHelper.h")
 
 target_include_directories(learnVulkan PRIVATE include external/glm external/volk/volk.h)
 

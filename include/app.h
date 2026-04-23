@@ -3,26 +3,12 @@
 #include <GLFW/glfw3.h>
 #include <cstdint>
 #include <vector>
-#include <optional>
-
-struct QueueFamilyIndices {
-	std::optional<uint32_t> graphicsFamily;
-	std::optional<uint32_t> presentFamily;
-	bool isComplete() {
-		return graphicsFamily.has_value() && presentFamily.has_value();
-	}
-};
-
-struct SwapChainSupportDetails {
-	VkSurfaceCapabilitiesKHR capabilities;
-	std::vector<VkSurfaceFormatKHR> formats;
-	std::vector<VkPresentModeKHR> presentModes;
-};
+#include "vulkanContext.h"
+#include "window.h"
 
 class Application {
 public:
 	Application() {
-		initWindow();
 		initVulkan();
 	};
 
@@ -32,13 +18,8 @@ public:
 
 	void cleanup();
 	void run();
+
 	void drawFrame();
-	int getHeight() { return HEIGHT; }
-	int getWidth() { return WIDTH; }
-	void createInstance();
-	void createSurface();
-	void pickPhysicalDevice();
-	void createLogicalDevice();
 	void createSwapChain();
 	void createImageViews();
 	void createRenderPass();
@@ -47,53 +28,20 @@ public:
 	void createCommandPool();
 	void createCommandBuffers();
 	void createSyncObjects();
-	void setupDebugMessenger();
-	void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
 
-
+	VulkanContext ctx;
 	std::vector<const char*> getRequiredExtensions();
-	static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
-		VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-		VkDebugUtilsMessageTypeFlagsEXT messageType,
-		const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-		void* pUserData);
-	const std::vector<const char*> validationLayers = {
-		"VK_LAYER_KHRONOS_validation"
-	};
-#ifdef NDEBUG
-	const bool enableValidationLayers = false;
-#else
-	const bool enableValidationLayers = true;
-#endif
 
-	bool checkValidationLayerSupport();
-	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
-	inline bool isDeviceSuitable(VkPhysicalDevice device);
-	inline bool checkDeviceExtensionSupport(VkPhysicalDevice device);
-	SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device);
 	VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities);
+
 	VkShaderModule createShaderModule(const std::vector<char>& code);
 	void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
-
-
 private:
-	GLFWwindow* m_window;
-	void initWindow();
+	
+	Window window{1080, (1080*4)/3};
+
 	void initVulkan();
-	const uint32_t WIDTH = 800;
-	const uint32_t HEIGHT = 600;
-	VkInstance m_instance;
-	VkDebugUtilsMessengerEXT m_debugMessenger;
-	const std::vector<const char*> deviceExtensions = {
-		VK_KHR_SWAPCHAIN_EXTENSION_NAME
-	};
 
-
-	VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
-	VkDevice m_device;
-	VkQueue m_graphicsQueue;
-	VkQueue m_presentQueue;
-	VkSurfaceKHR m_surface;
 	VkFormat m_swapChainImageFormat;
 	VkExtent2D m_swapChainExtent;
 	VkSwapchainKHR m_swapChain;
@@ -107,6 +55,9 @@ private:
 	VkPipeline m_graphicsPipeline;
 	VkCommandPool m_commandPool;
 	VkCommandBuffer m_commandBuffer;
+
+	//Synchronisation 
+
 	VkSemaphore imageAvailableSemaphore;
 	VkSemaphore renderFinishedSemaphore;
 	VkFence inFlightFence;

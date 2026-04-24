@@ -7,6 +7,19 @@
 #include <filesystem>
 #include <vulkanContext.h>
 
+
+
+uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, VkPhysicalDevice physicalDevice) {
+    VkPhysicalDeviceMemoryProperties memProperties;
+    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+        if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+            return i;
+        }
+    }
+    throw std::runtime_error("failed to find suitable memory type!");
+}
+
 VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats)
 {
     for (const auto& availableFormat : availableFormats) {
@@ -160,12 +173,15 @@ void Application::createGraphicsPipeline()
 
     VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
 
+	auto bindingDescription = Vertex::getBindingDescription();
+	auto attributeDescriptions = Vertex::getAttributeDescription();
+
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertexInputInfo.vertexBindingDescriptionCount = 0;
-    vertexInputInfo.pVertexBindingDescriptions = nullptr;
-    vertexInputInfo.vertexAttributeDescriptionCount = 0;
-    vertexInputInfo.pVertexAttributeDescriptions = nullptr;
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
     inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -265,6 +281,36 @@ void Application::createGraphicsPipeline()
     vkDestroyShaderModule(ctx.logicalDevice, vertShaderModule, nullptr);
 }
 
+
+// create a semaphore and  fence 
+// semaphore -> to signal when an image is available for rendering and when rendering is finished
+//fence -> to ensure that the CPU waits for the GPU to finish rendering before starting the next frame
+
+void Application::createSyncObjects()
+{
+    VkSemaphoreCreateInfo semaphoreInfo{};
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+	for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        VkSemaphore imageAvailableSemaphore;
+        VkSemaphore renderFinishedSemaphore;
+        VkFence inFlightFence;
+
+        if (vkCreateSemaphore(ctx.logicalDevice, &semaphoreInfo, nullptr, &imageAvailableSemaphore) != VK_SUCCESS ||
+            vkCreateSemaphore(ctx.logicalDevice, &semaphoreInfo, nullptr, &renderFinishedSemaphore) != VK_SUCCESS ||
+            vkCreateFence(ctx.logicalDevice, &fenceInfo, nullptr, &inFlightFence) != VK_SUCCESS)
+            throw std::runtime_error("failed to create synchronization objects for a frame!");
+        imageAvailableSemaphores[i]=imageAvailableSemaphore;
+        renderFinishedSemaphores[i] = renderFinishedSemaphore;
+        inFlightFences[i] = inFlightFence; 
+
+    }
+}
+
 void Application::createFrameBuffer()
 {
     m_swapChainFramebuffers.resize(m_swapChainImageViews.size());
@@ -340,15 +386,51 @@ void Application::createCommandPool()
         throw std::runtime_error("failed to create command pool!");
 }
 
+void Application::createVertexBuffer()
+{
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = sizeof(vertices[0]) * vertices.size();
+    bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    if (vkCreateBuffer(ctx.logicalDevice, &bufferInfo, nullptr, &vertexBuffer) != VK_SUCCESS) {
+        throw std::runtime_error("failed to create vertex buffer!");
+    }
+
+    VkMemoryRequirements memRequirements;
+    vkGetBufferMemoryRequirements(ctx.logicalDevice, vertexBuffer, &memRequirements);
+
+
+   
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memRequirements.size;
+    allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, ctx.physicalDevice);
+
+        if (vkAllocateMemory(ctx.logicalDevice, &allocInfo, nullptr, &vertexBufferMemory) != VK_SUCCESS) {
+        throw std::runtime_error("failed to allocate vertex buffer memory!");
+    }
+
+    vkBindBufferMemory(ctx.logicalDevice, vertexBuffer, vertexBufferMemory, 0);
+
+    void* data;
+    vkMapMemory(ctx.logicalDevice, vertexBufferMemory, 0, bufferInfo.size, 0, &data);
+    memcpy(data, vertices.data(), (size_t)bufferInfo.size);
+    vkUnmapMemory(ctx.logicalDevice, vertexBufferMemory);
+
+}
+
 void Application::createCommandBuffers()
 {
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.commandPool = m_commandPool;
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandBufferCount = 1;
+    allocInfo.commandBufferCount = static_cast<uint32_t>(m_commandBuffers.size());
 
-    if (vkAllocateCommandBuffers(ctx.logicalDevice, &allocInfo, &m_commandBuffer) != VK_SUCCESS)
+    if (vkAllocateCommandBuffers(ctx.logicalDevice, &allocInfo, m_commandBuffers.data()) != VK_SUCCESS)
         throw std::runtime_error("failed to allocate command buffers!");
 }
 
@@ -367,7 +449,7 @@ void Application::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t im
     renderPassInfo.renderArea.offset = { 0, 0 };
     renderPassInfo.renderArea.extent = m_swapChainExtent;
 
-    VkClearValue clearColor = { {{0.0f, 0.0f, 0.0f, 1.0f}} };
+    VkClearValue clearColor = { {{0.0f, 0.0f, 0.0f, 1.0f}}};
     renderPassInfo.clearValueCount = 1;
     renderPassInfo.pClearValues = &clearColor;
 
@@ -388,64 +470,55 @@ void Application::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t im
     scissor.extent = m_swapChainExtent;
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicsPipeline);
+
+    VkBuffer vertexBuffers[] = { vertexBuffer };
+    VkDeviceSize offsets[] = { 0 };
+    vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+
+    vkCmdDraw(commandBuffer, static_cast<uint32_t>(vertices.size()), 1, 0, 0);
     vkCmdEndRenderPass(commandBuffer);
 
     if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
         throw std::runtime_error("failed to record command buffer!");
 }
 
-// create a semaphore and  fence 
-// semaphore -> to signal when an image is available for rendering and when rendering is finished
-//fence -> to ensure that the CPU waits for the GPU to finish rendering before starting the next frame
-
-void Application::createSyncObjects()
-{
-    VkSemaphoreCreateInfo semaphoreInfo{};
-    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-
-    VkFenceCreateInfo fenceInfo{};
-    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-    if (vkCreateSemaphore(ctx.logicalDevice, &semaphoreInfo, nullptr, &imageAvailableSemaphore) != VK_SUCCESS ||
-        vkCreateSemaphore(ctx.logicalDevice, &semaphoreInfo, nullptr, &renderFinishedSemaphore) != VK_SUCCESS ||
-        vkCreateFence(ctx.logicalDevice, &fenceInfo, nullptr, &inFlightFence) != VK_SUCCESS)
-        throw std::runtime_error("failed to create synchronization objects for a frame!");
-}
 
 void Application::drawFrame()
 { 
-	// VKTRUe indicates we wanna wait for all  fences to be signalled before proceeding , UINT64_MAX means we will wait indefinitely until the fence is signaled
-    vkWaitForFences(ctx.logicalDevice, 1, &inFlightFence, VK_TRUE, UINT64_MAX);
-	vkResetFences(ctx.logicalDevice, 1, &inFlightFence); // reset to unsignaled state for the next frame
+	//CPu wait for GPU finish to rendering before starting the next frame to avoid rendering to an image that is still in use
 
+    vkWaitForFences(ctx.logicalDevice, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
+
+	vkResetFences(ctx.logicalDevice, 1, &inFlightFences[currentFrame]);
 
     uint32_t imageIndex;
-    vkAcquireNextImageKHR(ctx.logicalDevice, m_swapChain, UINT64_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
 
-    vkResetCommandBuffer(m_commandBuffer, 0);
-    recordCommandBuffer(m_commandBuffer, imageIndex);
+    vkAcquireNextImageKHR(ctx.logicalDevice, m_swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+
+    vkResetCommandBuffer(m_commandBuffers[currentFrame], 0);
+    recordCommandBuffer(m_commandBuffers[currentFrame], imageIndex);
 
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
 	// wait for the image to be available before rendering and specify the pipeline stage at which the wait will occur
-    VkSemaphore waitSemaphores[] = { imageAvailableSemaphore };
+
+    VkSemaphore waitSemaphores[] = { imageAvailableSemaphores[currentFrame] };
     VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
     submitInfo.waitSemaphoreCount = 1;
 	submitInfo.pWaitSemaphores = waitSemaphores; // pointer to the semaphores to wait on before command buffer execution begins
     submitInfo.pWaitDstStageMask = waitStages;
     submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &m_commandBuffer;
+    submitInfo.pCommandBuffers = &m_commandBuffers[currentFrame];
 
 	// signal the semaphore when rendering is finished so that presentation can proceed
 
-    VkSemaphore signalSemaphores[] = { renderFinishedSemaphore };
+    VkSemaphore signalSemaphores[] = { renderFinishedSemaphores[currentFrame] };
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = signalSemaphores;
 
-    if (vkQueueSubmit(ctx.graphicsQueue, 1, &submitInfo, inFlightFence) != VK_SUCCESS)
+	if (vkQueueSubmit(ctx.graphicsQueue, 1, &submitInfo, inFlightFences[currentFrame]) != VK_SUCCESS) // GPU  signals the fence when it has done executing the command buffer for the CPU , CPU waits on this Fence before starting the next frame
         throw std::runtime_error("failed to submit draw command buffer!");
 
     VkPresentInfoKHR presentInfo{};
@@ -460,15 +533,23 @@ void Application::drawFrame()
     presentInfo.pResults = nullptr;
 
     vkQueuePresentKHR(ctx.presentQueue, &presentInfo);
+
+    currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
 void Application::initVulkan()
 {
+	m_commandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+	inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+	imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+	renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+         
     ctx.initialize(window.get());
     createSwapChain();
     createImageViews();
     createRenderPass();
     createGraphicsPipeline();
+	createVertexBuffer();
     createFrameBuffer();
     createCommandPool();
     createCommandBuffers();
@@ -485,13 +566,20 @@ void Application::run()
 
 void Application::cleanup()
 {
-    vkDestroySemaphore(ctx.logicalDevice, imageAvailableSemaphore, nullptr);
-    vkDestroySemaphore(ctx.logicalDevice, renderFinishedSemaphore, nullptr);
-    vkDestroyFence(ctx.logicalDevice, inFlightFence, nullptr);
+	for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        vkDestroySemaphore(ctx.logicalDevice, renderFinishedSemaphores[i], nullptr);
+        vkDestroySemaphore(ctx.logicalDevice, imageAvailableSemaphores[i], nullptr);
+        vkDestroyFence(ctx.logicalDevice, inFlightFences[i], nullptr);
+    }
+
+
     vkDestroyCommandPool(ctx.logicalDevice, m_commandPool, nullptr);
 
     for (auto framebuffer : m_swapChainFramebuffers)
         vkDestroyFramebuffer(ctx.logicalDevice, framebuffer, nullptr);
+
+    vkDestroyBuffer(ctx.logicalDevice, vertexBuffer, nullptr);
+	vkFreeMemory(ctx.logicalDevice, vertexBufferMemory, nullptr);
 
     vkDestroyPipeline(ctx.logicalDevice, m_graphicsPipeline, nullptr);
     vkDestroyPipelineLayout(ctx.logicalDevice, m_pipelineLayout, nullptr);

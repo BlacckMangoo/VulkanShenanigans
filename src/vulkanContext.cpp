@@ -78,7 +78,7 @@ bool VulkanContext::checkDeviceExtensionSupport(VkPhysicalDevice device) const
 
     std::vector<VkExtensionProperties> availableExtensions(extensionCount);
     vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
-
+  
     std::set<std::string> requiredExtensions(deviceExtensions.begin(), deviceExtensions.end());
     for (const auto& extension : availableExtensions)
         requiredExtensions.erase(extension.extensionName);
@@ -90,6 +90,11 @@ bool VulkanContext::isDeviceSuitable(VkPhysicalDevice device) const
 {
     QueueFamilyIndices indices = findQueueFamilies(device);
     bool extensionsSupported = checkDeviceExtensionSupport(device);
+    
+	VkPhysicalDeviceProperties deviceProperties;
+	vkGetPhysicalDeviceProperties(device, &deviceProperties);
+
+	bool isDiscreteGPU = deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 
     bool swapChainAdequate = false;
     if (extensionsSupported) {
@@ -97,7 +102,8 @@ bool VulkanContext::isDeviceSuitable(VkPhysicalDevice device) const
         swapChainAdequate = !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
     }
 
-    return indices.isComplete() && extensionsSupported && swapChainAdequate;
+    return indices.isComplete() && extensionsSupported && swapChainAdequate && isDiscreteGPU;
+   
 }
 
 void VulkanContext::createInstance()
@@ -196,17 +202,14 @@ void VulkanContext::cleanup()
 {
     if (logicalDevice != VK_NULL_HANDLE) {
         vkDestroyDevice(logicalDevice, nullptr);
-        logicalDevice = VK_NULL_HANDLE;
     }
 
     if (surface != VK_NULL_HANDLE) {
         vkDestroySurfaceKHR(instance, surface, nullptr);
-        surface = VK_NULL_HANDLE;
     }
 
     if (instance != VK_NULL_HANDLE) {
         vkDestroyInstance(instance, nullptr);
-        instance = VK_NULL_HANDLE;
     }
 }
 

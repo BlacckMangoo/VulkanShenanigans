@@ -39,6 +39,7 @@ public:
 
 	VulkanContext() = default;
 	~VulkanContext();
+
 	VulkanContext(const VulkanContext&) = delete;
 	VulkanContext& operator=(const VulkanContext&) = delete;
 

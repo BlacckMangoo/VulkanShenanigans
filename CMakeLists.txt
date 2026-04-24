@@ -4,13 +4,9 @@ project(learnVulkan LANGUAGES CXX C)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-
 find_package(Vulkan REQUIRED)
-
 #GLFW 
 add_subdirectory(external/glfw)
-
-
 
 add_executable(learnVulkan src/main.cpp external/volk/volk.c src/app.cpp  "include/vulkanContext.h" "src/vulkanContext.cpp" "include/window.h")
 
